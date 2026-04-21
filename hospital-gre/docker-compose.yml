@@ -1,108 +1,157 @@
 version: "3.8"
 
 # MedVault – G3 Demo Stack
-# MongoDB 3-node replica set + Mongo Express
+# MongoDB 3-node Sharded Cluster replica set + Mongo Express
 # Simulates federated clinical research platform (GDPR/HIPAA context)
 
+# define common MongoDB template
+x-mongo-base: &mongo-base
+  image: mongo:7.0
+  restart: unless-stopped
+  networks:
+    - net-gre-internal
+  deploy:
+    resources:
+      limits:
+        memory: 1g  # limit the container to use at most 1GB of memory
+      reservations:
+        memory: 512m # reserve 512MB for the container
 services:
 
-  # ── Replica set initialiser ───────────────────────────────────────────────
-  # One-shot container: waits for all three mongod nodes to accept connections,
-  # then calls rs.initiate(). Exits 0 on success; Docker marks it "exited".
-  mongo-init:
-    image: mongo:7.0
-    container_name: medvault-init
-    depends_on:
-      mongo1:
-        condition: service_healthy
-      mongo2:
-        condition: service_healthy
-      mongo3:
-        condition: service_healthy
-    networks:
-      - medvault-net
-    restart: "no"
-    entrypoint: >
-      mongosh --host mongo1:27017 --eval "
-        try {
-          rs.initiate({
-            _id: 'medvault-rs',
-            members: [
-              { _id: 0, host: 'mongo1:27017', priority: 2 },
-              { _id: 1, host: 'mongo2:27017', priority: 1 },
-              { _id: 2, host: 'mongo3:27017', priority: 1 }
-            ]
-          });
-        } catch(e) {
-          if (e.codeName !== 'AlreadyInitialized') { throw e; }
-            print('Replica set already initialized, continuing...');
-          }
-          var deadline = new Date().getTime() + 60000;
-          while (rs.status().myState !== 1) {
-            if (new Date().getTime() > deadline) { quit(1); }
-            sleep(500);
-          }
-          print('Primary elected: ' + rs.status().members.filter(m => m.stateStr === 'PRIMARY')[0].name);
-        "
-
-  # ── Mongo node 1 (preferred primary) ─────────────────────────────────────
-  mongo1:
-    image: mongo:7.0
-    container_name: medvault-mongo1
-    hostname: mongo1                     # hostname must match rs member host
-    command: ["mongod", "--replSet", "medvault-rs", "--bind_ip_all"]
+  # ── Config servers (CSRS) ─────────────────────────────────────────────────
+  configsvr1:
+    <<: *mongo-base
+    container_name: hospital-gre-configsvr1
+    command: ["mongod", "--configsvr", "--replSet", "csrs", "--bind_ip_all", "--port", "27019"]
+    healthcheck:
+      test: ["CMD", "mongosh", "--port", "27019", "--eval", "db.adminCommand('ping').ok", "--quiet"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
     ports:
-      - "27017:27017"                    # expose for mongosh access from host
+      - "27019:27019" # Config Server default Port
     volumes:
-      - mongo1-data:/data/db            # named volume: survives docker-compose down
-      - mongo1-config:/data/configdb
-    networks:
-      - medvault-net
-    restart: unless-stopped
+      - configsvr1-data:/data/db        
+      - configsvr1-config:/data/configdb
+  configsvr2:
+    <<: *mongo-base
+    container_name: hospital-gre-configsvr2
+    command: ["mongod", "--configsvr", "--replSet", "csrs", "--bind_ip_all", "--port", "27019"]
     healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping').ok", "--quiet"]
+      test: ["CMD", "mongosh", "--port", "27019", "--eval", "db.adminCommand('ping').ok", "--quiet"]
       interval: 10s
       timeout: 5s
       retries: 6
-      start_period: 20s                  # give mongod time to start before first probe
-
-  # ── Mongo node 2 ──────────────────────────────────────────────────────────
-  mongo2:
-    image: mongo:7.0
-    container_name: medvault-mongo2
-    hostname: mongo2
-    command: ["mongod", "--replSet", "medvault-rs", "--bind_ip_all"]
+      start_period: 10s
+    ports:
+      - "28019:27019" # Avoid host-port clash with configsvr1
     volumes:
-      - mongo2-data:/data/db
-      - mongo2-config:/data/configdb
-    networks:
-      - medvault-net
-    restart: unless-stopped
+      - configsvr2-data:/data/db        
+      - configsvr2-config:/data/configdb
+  configsvr3:
+    <<: *mongo-base
+    container_name: hospital-gre-configsvr3
+    command: ["mongod", "--configsvr", "--replSet", "csrs", "--bind_ip_all", "--port", "27019"]
     healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping').ok", "--quiet"]
+      test: ["CMD", "mongosh", "--port", "27019", "--eval", "db.adminCommand('ping').ok", "--quiet"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    ports:
+      - "29019:27019" # Avoid host-port clash with configsvr1
+    volumes:
+      - configsvr3-data:/data/db        
+      - configsvr3-config:/data/configdb
+
+# ── 2. Shard 1 (include A, B and C nodes, show Replication) ────────────────────
+  # Mongo node A
+  shard1a:
+    <<: *mongo-base
+    container_name: hospital-gre-shard1a
+    command: ["mongod", "--shardsvr", "--replSet", "sh1rs", "--bind_ip_all"]
+    healthcheck:
+      test: ["CMD", "mongosh", "--port", "27018", "--eval", "db.adminCommand('ping').ok", "--quiet"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    volumes:
+      - shard1a-data:/data/db        
+      - shard1a-config:/data/configdb
+  # Mongo node B
+  shard1b:
+    <<: *mongo-base
+    container_name: hospital-gre-shard1b
+    command: ["mongod", "--shardsvr", "--replSet", "sh1rs", "--bind_ip_all"]
+    healthcheck:
+      test: ["CMD", "mongosh", "--port", "27018", "--eval", "db.adminCommand('ping').ok", "--quiet"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    volumes:
+      - shard1b-data:/data/db        
+      - shard1b-config:/data/configdb
+  # Mongo node C
+  shard1c:
+    <<: *mongo-base
+    container_name: hospital-gre-shard1c
+    command: ["mongod", "--shardsvr", "--replSet", "sh1rs", "--bind_ip_all"]
+    healthcheck:
+      test: ["CMD", "mongosh", "--port", "27018", "--eval", "db.adminCommand('ping').ok", "--quiet"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    volumes:
+      - shard1c-data:/data/db        
+      - shard1c-config:/data/configdb
+
+# ── 3. Shard 2 (single node, show horizontal scaling) ────────────────────
+  shard2:
+    <<: *mongo-base
+    container_name: hospital-gre-shard2
+    command: ["mongod", "--shardsvr", "--replSet", "sh2rs", "--bind_ip_all"]
+    healthcheck:
+      test: ["CMD", "mongosh", "--port", "27018", "--eval", "db.adminCommand('ping').ok", "--quiet"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    volumes:
+      - shard2-data:/data/db        
+      - shard2-config:/data/configdb
+
+# ── 4. Mongos (query router - the only entry point of the system) ──────────
+  mongos-router:
+    <<: *mongo-base
+    container_name: hospital-gre-router
+    command: ["mongos", "--configdb", "csrs/configsvr1:27019,configsvr2:27019,configsvr3:27019", "--bind_ip_all"]
+    ports:
+      - "27017:27017"
+    healthcheck:
+      test: ["CMD", "mongosh", "--port", "27017", "--eval", "db.adminCommand('ping').ok", "--quiet"]
       interval: 10s
       timeout: 5s
       retries: 6
       start_period: 20s
-
-  # ── Mongo node 3 ──────────────────────────────────────────────────────────
-  mongo3:
-    image: mongo:7.0
-    container_name: medvault-mongo3
-    hostname: mongo3
-    command: ["mongod", "--replSet", "medvault-rs", "--bind_ip_all"]
-    volumes:
-      - mongo3-data:/data/db
-      - mongo3-config:/data/configdb
-    networks:
-      - medvault-net
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping').ok", "--quiet"]
-      interval: 10s
-      timeout: 5s
-      retries: 6
-      start_period: 20s
+    depends_on:
+      configsvr1:
+        condition: service_healthy
+      configsvr2:
+        condition: service_healthy
+      configsvr3:
+        condition: service_healthy
+      shard1a:
+        condition: service_healthy
+      shard1b:
+        condition: service_healthy
+      shard1c:
+        condition: service_healthy
+      shard2:
+        condition: service_healthy
 
   # ── Mongo Express (web UI) ────────────────────────────────────────────────
   # Connects to the replica set via the primary (mongo1).
@@ -113,18 +162,18 @@ services:
     ports:
       - "8081:8081"                      # http://localhost:8081
     environment:
-      ME_CONFIG_MONGODB_URL: "mongodb://mongo1:27017,mongo2:27017,mongo3:27017/?replicaSet=medvault-rs"
-      ME_CONFIG_BASICAUTH_USERNAME: "admin"
-      ME_CONFIG_BASICAUTH_PASSWORD: "medvault2026"
+      ME_CONFIG_MONGODB_URL: "mongodb://mongos-router:27017/" # link to the mongos-router container, router handles the routing to the appropriate shard
+      ME_CONFIG_BASICAUTH_USERNAME: "${BASICAUTH_USERNAME}"
+      ME_CONFIG_BASICAUTH_PASSWORD: "${BASICAUTH_PASSWORD}"
       ME_CONFIG_OPTIONS_EDITORTHEME: "ambiance"
     depends_on:
-      mongo-init:
-        condition: service_completed_successfully   # only start after rs.initiate() succeeds
+      mongos-router:
+        condition: service_healthy
     networks:
-      - medvault-net
+      - net-gre-internal
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://admin:medvault2024@localhost:8081"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8081"]
       interval: 15s
       timeout: 5s
       retries: 4
@@ -134,16 +183,24 @@ services:
 # One pair per node. Data persists across `docker-compose down`.
 # Use `docker-compose down -v` to wipe everything (demo reset).
 volumes:
-  mongo1-data:
-  mongo1-config:
-  mongo2-data:
-  mongo2-config:
-  mongo3-data:
-  mongo3-config:
+  configsvr1-data:
+  configsvr1-config:
+  configsvr2-data:
+  configsvr2-config:
+  configsvr3-data:
+  configsvr3-config:
+  shard1a-data:
+  shard1a-config:
+  shard1b-data:
+  shard1b-config:
+  shard1c-data:
+  shard1c-config:
+  shard2-data:
+  shard2-config:
 
 # ── Network ───────────────────────────────────────────────────────────────────
 # Bridge network: services reach each other by container hostname (mongo1, mongo2…).
 # Replica set member host strings in rs.initiate() MUST match these hostnames.
 networks:
-  medvault-net:
+  net-gre-internal:
     driver: bridge
