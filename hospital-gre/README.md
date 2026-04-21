@@ -67,6 +67,14 @@ This will:
 - `rs.initiate()` for `csrs`, `sh1rs`, `sh2rs`
 - `sh.addShard(...)` on `hospital-gre-router`
 
+Then (recommended for the demo), pre-split chunks and shard the demo collection:
+
+```bash
+./init-shard-key.sh
+```
+
+This uses **Approach A** (`numInitialChunks: 4`) to create multiple chunks up-front so inserts will distribute across `sh1rs` and `sh2rs` without waiting for autosplit thresholds.
+
 ---
 
 ## Open the UI
@@ -93,9 +101,11 @@ docker exec -i hospital-gre-router mongosh --port 27017 < demo.js
 ```
 
 This runs three operations in sequence:
-1. **insertMany** — inserts 50 de-identified patient documents with `w:majority`
+1. **insertMany** — inserts **100** de-identified patient documents with `w:majority` into `medvault.patients`
 2. **Aggregation** — cohort HbA1c query returning only anonymised statistics
-3. **GDPR Art. 17** — consent withdrawal for PT-0003, then re-runs the same query to show exclusion
+3. **GDPR Art. 17** — consent withdrawal for PT-000003, then re-runs the same query to show exclusion
+
+The script also prints the shard distribution for `patients` at the end.
 
 ---
 
@@ -129,11 +139,14 @@ db.patients.aggregate([
 ])
 
 // Withdraw consent for PT-0003
-db.patients.updateOne({ patient_id: "PT-0003" }, { $set: { consent_active: false } })
+db.patients.updateOne({ patient_id: "PT-000003" }, { $set: { consent_active: false } })
 
 // Sharded cluster status (via mongos)
 db.adminCommand({ listShards: 1 })
 sh.status()
+
+// Distribution for the demo collection
+db.patients.getShardDistribution()
 ```
 
 ---

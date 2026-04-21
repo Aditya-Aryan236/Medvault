@@ -1,7 +1,7 @@
 #!/bin/bash
 # Ensure the script stops on error
 # ── Replica set initialiser for Sharded Cluster ────────────────────────────
-set -e
+set -euo pipefail
 
 echo "Waiting for MongoDB containers to start (10 seconds)..."
 sleep 10
@@ -23,3 +23,26 @@ docker exec hospital-gre-router mongosh --port 27017 --eval 'sh.addShard("sh1rs/
 docker exec hospital-gre-router mongosh --port 27017 --eval 'sh.addShard("sh2rs/shard2:27018")'
 
 echo "✅ Sharded Cluster initialization completed!"
+
+echo "5. set shard key for patients collection (pre-split chunks)..."
+docker exec hospital-gre-router mongosh --port 27017 --eval '
+  db = db.getSiblingDB("medvault");
+  sh.enableSharding("medvault");
+  // Use db.patients (as requested). If it was sharded before, drop and recreate sharding
+  // metadata by dropping the collection first.
+  try { db.patients.drop(); } catch (e) {}
+
+  // Hashed shard key requires a matching hashed index.
+  db.patients.createIndex({ patient_id: "hashed" });
+
+  // Approach A: pre-split chunks at sharding time so data distributes across shards
+  // without waiting for autosplit thresholds.
+  sh.shardCollection(
+    "medvault.patients",
+    { patient_id: "hashed" },
+    false,
+    { numInitialChunks: 4 }
+  );
+'
+
+echo "✅ Shard key set for patients collection!"

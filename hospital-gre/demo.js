@@ -15,7 +15,7 @@ db = db.getSiblingDB('medvault');
 // Shows: document model (embedded lab results), anonymised IDs, replica write
 // ═══════════════════════════════════════════════════════════════════════════
 
-print("\n── OP 1: Inserting 50 de-identified patient documents ──");
+print("\n── OP 1: Inserting 100 de-identified patient documents ──");
 
 var patients = [];
 var protocols  = ["Metformin-only", "Metformin+GLP1", "Insulin-basal", "Lifestyle-only"];
@@ -23,7 +23,7 @@ var icd10codes = ["E11.9", "E11.65", "E11.40", "E11.51"]; // Type-2 diabetes var
 var hospitals  = ["UKL", "AMC", "CHU-Paris", "Charité", "UZG"];
 var languages  = ["de", "nl", "fr", "de", "nl"];
 
-for (var i = 1; i <= 50; i++) {
+for (var i = 1; i <= 100; i++) {
   var protocolIdx   = (i - 1) % 4; // 0,1,2,3 each of the 4 protocols gets 12-13 patients 
   var hospitalIdx   = (i - 1) % 5; // 0,1,2,3,4 each of the 5 hospitals gets 10 patients
   var baseHbA1c     = 7.2 + (protocolIdx * 0.4) + (Math.random() * 0.8 - 0.4);
@@ -173,11 +173,13 @@ print("\n── Sharded cluster status summary (via mongos) ──");
 try {
   var shards = db.adminCommand({ listShards: 1 });
   print("Shards:");
-  // printjson(shards);
+  printjson(shards);
   shards.shards.forEach(function(m) {
-    print("host=" + m.host + "  state=" + m.stateStr + "  health=" + m.health);
+    print("host=" + m.host + "  state=" + m.state);
   });
   print("--------------------------------");
+  print("Specific collection distribution:");
+  printjson(db.patients.getShardDistribution());
 } catch (e) {
   print("Could not run listShards (is this connected to mongos on 27017?): " + e);
 }
