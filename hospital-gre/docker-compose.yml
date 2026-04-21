@@ -43,7 +43,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 6
-      start_period: 10s
+      start_period: 15s
     ports:
       - "28019:27019" # Avoid host-port clash with configsvr1
     volumes:
@@ -58,7 +58,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 6
-      start_period: 10s
+      start_period: 15s
     ports:
       - "29019:27019" # Avoid host-port clash with configsvr1
     volumes:
@@ -76,7 +76,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 6
-      start_period: 10s
+      start_period: 15s
     volumes:
       - shard1a-data:/data/db        
       - shard1a-config:/data/configdb
@@ -90,7 +90,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 6
-      start_period: 10s
+      start_period: 15s
     volumes:
       - shard1b-data:/data/db        
       - shard1b-config:/data/configdb
@@ -104,7 +104,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 6
-      start_period: 10s
+      start_period: 15s
     volumes:
       - shard1c-data:/data/db        
       - shard1c-config:/data/configdb
@@ -119,7 +119,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 6
-      start_period: 10s
+      start_period: 15s
     volumes:
       - shard2-data:/data/db        
       - shard2-config:/data/configdb
@@ -177,8 +177,16 @@ services:
       interval: 15s
       timeout: 5s
       retries: 4
-      start_period: 10s
-
+      start_period: 20s
+# ── Portainer (web UI) ───────────────────────────────────────────────────────
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: portainer
+    ports:
+      - "9443:9443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
 # ── Named volumes ─────────────────────────────────────────────────────────────
 # One pair per node. Data persists across `docker-compose down`.
 # Use `docker-compose down -v` to wipe everything (demo reset).
@@ -197,6 +205,7 @@ volumes:
   shard1c-config:
   shard2-data:
   shard2-config:
+  portainer_data:
 
 # ── Network ───────────────────────────────────────────────────────────────────
 # Bridge network: services reach each other by container hostname (mongo1, mongo2…).

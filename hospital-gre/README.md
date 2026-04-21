@@ -1,6 +1,6 @@
 # MedVault – G3 Demo Stack
 
-MongoDB 3-node replica set + Mongo Express  
+MongoDB **sharded cluster** (CSRS + 2 shards) + Mongo Express  
 Federated clinical research platform simulation (GDPR/HIPAA context)  
 Group 3 · Data Platform Architectures · AIDA2
 
@@ -9,12 +9,14 @@ Group 3 · Data Platform Architectures · AIDA2
 ## What this stack does
 
 Simulates the MedVault data platform from the case study:
-- **3-node MongoDB replica set** — primary (mongo1) + 2 secondaries (mongo2, mongo3)
-- **Automatic failover** — if mongo1 goes down, mongo2 or mongo3 takes over
-- **Write concern w:majority** — every write confirmed on 2 nodes before success
-- **Mongo Express UI** — browser-based interface to inspect the database
+- **Config Server Replica Set (CSRS)** — `configsvr1/2/3` (replica set id: `csrs`)
+- **Shard 1 (replica set)** — `shard1a/1b/1c` (replica set id: `sh1rs`)
+- **Shard 2 (replica set)** — `shard2` (replica set id: `sh2rs`)
+- **Query router (mongos)** — `mongos-router` (container name: `hospital-gre-router`) is the **only app entrypoint**
+- **Write concern `w:majority`** — writes are acknowledged after majority of the targeted replica set(s)
+- **Mongo Express UI** — browser-based interface to inspect the database through the router
 
-This is replication, not sharding. All three nodes hold the same data. Purpose is fault tolerance and 30-year durability, not horizontal scale.
+This stack demonstrates **sharding** (horizontal scaling) on top of **replication** (fault tolerance).
 
 ---
 
@@ -29,76 +31,50 @@ Verify: `mongosh --version`
 
 ---
 
-## One-time laptop setup
-
-MongoDB's replica set uses internal hostnames (`mongo1`, `mongo2`, `mongo3`) that only exist inside Docker. Your laptop needs to know what they mean. Run this once:
-
-```bash
-sudo sh -c "echo '127.0.0.1 mongo1
-127.0.0.1 mongo2
-127.0.0.1 mongo3' >> /etc/hosts"
-```
-
-It will ask for your laptop password. Verify it worked:
-
-```bash
-cat /etc/hosts | grep mongo
-```
-
-You should see all three lines.
-
----
-
 ## Start the stack
 
 ```bash
-docker-compose up -d
+docker compose -f docker-compose.yml up -d
 ```
 
 Startup order (automatic via healthchecks):
-1. `mongo1`, `mongo2`, `mongo3` start and pass their ping healthcheck
-2. `mongo-init` runs `rs.initiate()`, waits for primary election, exits 0
-3. `mongo-express` starts after `mongo-init` completes successfully
+1. Config servers + shard members start and pass their ping healthchecks
+2. `mongos-router` starts after config servers + shards are healthy
+3. `mongo-express` starts after `mongos-router` is healthy
 
 Wait ~30 seconds, then check:
 
 ```bash
-docker-compose ps -a
+docker compose -f docker-compose.yml ps
 ```
 
-Expected output:
-```
-medvault-express   Up (healthy)    0.0.0.0:8081->8081/tcp
-medvault-init      Exited (0)
-medvault-mongo1    Up (healthy)    0.0.0.0:27017->27017/tcp
-medvault-mongo2    Up (healthy)    27017/tcp
-medvault-mongo3    Up (healthy)    27017/tcp
-```
-
-`mongo-init` showing `Exited (0)` is correct — it is a one-shot setup container, not a server.
+Key ports on your laptop:
+- `mongodb://localhost:27017` → **mongos query router** (use this in apps/mongosh)
+- `http://localhost:8081` → Mongo Express UI
+- Optional (debug): `localhost:27019 / 28019 / 29019` → config servers
 
 ---
 
-## Verify the replica set
+## One-time: initialize the sharded cluster (replica sets + add shards)
+
+The containers boot the processes, but you still need to initiate the replica sets and register shards on the router once:
 
 ```bash
-docker exec -it medvault-mongo1 mongosh --eval "rs.status().members.forEach(m => print(m.name, m.stateStr))"
+./init-shards.sh
 ```
 
-Expected:
-```
-mongo1:27017 PRIMARY
-mongo2:27017 SECONDARY
-mongo3:27017 SECONDARY
-```
+This will:
+- `rs.initiate()` for `csrs`, `sh1rs`, `sh2rs`
+- `sh.addShard(...)` on `hospital-gre-router`
 
 ---
 
 ## Open the UI
 
-http://localhost:8081  
-Username: `admin`  
-Password: `medvault2026`
+`http://localhost:8081`  
+Username / password are controlled by `.env`:
+- `BASICAUTH_USERNAME`
+- `BASICAUTH_PASSWORD`
 
 ---
 
@@ -107,7 +83,13 @@ Password: `medvault2026`
 Make sure your terminal is in the same folder as `demo.js`, then:
 
 ```bash
-mongosh "mongodb://localhost:27017/?replicaSet=medvault-rs" demo.js
+mongosh "mongodb://localhost:27017" demo.js
+```
+
+If your laptop doesn't have `mongosh`, you can run the script using the router container's built-in `mongosh`:
+
+```bash
+docker exec -i hospital-gre-router mongosh --port 27017 < demo.js
 ```
 
 This runs three operations in sequence:
@@ -122,7 +104,7 @@ This runs three operations in sequence:
 Open mongosh interactively:
 
 ```bash
-mongosh "mongodb://localhost:27017/?replicaSet=medvault-rs"
+mongosh "mongodb://localhost:27017"
 ```
 
 Then inside the shell:
@@ -149,8 +131,9 @@ db.patients.aggregate([
 // Withdraw consent for PT-0003
 db.patients.updateOne({ patient_id: "PT-0003" }, { $set: { consent_active: false } })
 
-// Replica set status
-rs.status()
+// Sharded cluster status (via mongos)
+db.adminCommand({ listShards: 1 })
+sh.status()
 ```
 
 ---
@@ -159,10 +142,10 @@ rs.status()
 
 ```bash
 # Stop containers, keep data (safe between practice runs)
-docker-compose down
+docker compose -f docker-compose.yml down
 
 # Full reset — wipe all data (use before a clean demo run-through)
-docker-compose down -v
+docker compose -f docker-compose.yml down -v
 ```
 
 ---
@@ -171,18 +154,17 @@ docker-compose down -v
 
 | Symptom | Fix |
 |---|---|
-| `mongo-init` shows `Exited (0)` | This is correct — it is a one-shot container |
-| `mongo-init` shows `Exited (1)` on rerun | Run `docker-compose logs mongo-init` — if it says "already initialized" the replica set is fine, just run `docker-compose down -v` and `up -d` for a clean start |
-| `mongo-express` shows unhealthy but UI loads | Known cosmetic issue with the healthcheck — the UI works correctly, ignore the status |
-| `MongoNetworkError: getaddrinfo ENOTFOUND mongo2` | You haven't added the hostnames to `/etc/hosts` — see One-time laptop setup above |
-| `SyntaxError: Missing semicolon` on `use medvault` | Make sure line 10 of `demo.js` reads `db = db.getSiblingDB('medvault')` not `use medvault` |
-| Port 27017 already in use | Stop any local MongoDB: `brew services stop mongodb-community` |
+| `Error dependency mongos-router failed to start` | Ensure `mongos-router` uses `--configdb csrs/...` (must match `init-shards.sh`) |
+| Port `27019 already in use` | Something else is using `27019` on your laptop; stop it or change the host port mapping for `configsvr1` |
+| Demo connects but `sh.status()` errors | Make sure you're connected to `mongodb://localhost:27017` (mongos), not a shard member |
 | `mongosh: command not found` | Install from https://www.mongodb.com/try/download/shell |
 
 ---
 
-## Architecture note — replication vs sharding
+## Architecture note — sharding vs replication
 
-This stack implements **replication** (fault tolerance) not **sharding** (horizontal scale).
+This stack implements both:
+- **Replication** inside each replica set (`csrs`, `sh1rs`, `sh2rs`) for fault tolerance
+- **Sharding** across shards for horizontal scaling
 
-In production MedVault, sharding would be added using `hash(patient_id)` as the shard key on the patients collection — chosen over `range(date_of_birth)` to avoid skew from the age bracket concentration in the diabetes study cohort (45–74 year olds). A sharded cluster would add config servers and a `mongos` router on top of this replica set foundation.
+For a production-style design, a common shard key choice for `patients` is a **hashed** key (e.g. `hashed(patient_id)`) to reduce hotspotting compared to a range key with skewed demographics.

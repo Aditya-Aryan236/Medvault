@@ -1,5 +1,6 @@
-// MedVault Demo Script – run inside mongosh
-// Connect: mongosh "mongodb://localhost:27017/?replicaSet=medvault-rs"
+// MedVault Demo Script – run inside mongosh (via mongos query router)
+// Connect (host):      mongosh "mongodb://localhost:27017" demo.js
+// Connect (in docker): docker exec -i hospital-gre-router mongosh --port 27017 < demo.js
 //
 // Three operations matching the presentation plan:
 //   1. insertMany  – batch ingest 50 de-identified patient docs
@@ -165,9 +166,18 @@ var afterWithdrawal = db.patients.aggregate([
 print("Post-withdrawal result (PT-0003 excluded – count reduced by 1 in its protocol):");
 printjson(afterWithdrawal);
 
-// ── Replica set status check (good slide moment) ──────────────────────────
-print("\n── Replica set status summary ──");
-var status = rs.status();
-status.members.forEach(function(m) {
-  print(m.name + "  state=" + m.stateStr + "  health=" + m.health);
-});
+// ── Sharded cluster status check (good slide moment) ──────────────────────
+// Note: rs.status() only works when connected directly to a mongod member.
+// When connected to mongos (this demo), use sh.status() / listShards instead.
+print("\n── Sharded cluster status summary (via mongos) ──");
+try {
+  var shards = db.adminCommand({ listShards: 1 });
+  print("Shards:");
+  // printjson(shards);
+  shards.shards.forEach(function(m) {
+    print("host=" + m.host + "  state=" + m.stateStr + "  health=" + m.health);
+  });
+  print("--------------------------------");
+} catch (e) {
+  print("Could not run listShards (is this connected to mongos on 27017?): " + e);
+}
