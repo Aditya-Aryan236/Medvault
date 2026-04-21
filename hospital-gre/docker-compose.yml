@@ -24,22 +24,26 @@ services:
     restart: "no"
     entrypoint: >
       mongosh --host mongo1:27017 --eval "
-        rs.initiate({
-          _id: 'medvault-rs',
-          members: [
-            { _id: 0, host: 'mongo1:27017', priority: 2 },
-            { _id: 1, host: 'mongo2:27017', priority: 1 },
-            { _id: 2, host: 'mongo3:27017', priority: 1 }
-          ]
-        });
-        // Wait until primary is elected (up to 30 s)
-        var deadline = new Date().getTime() + 30000;
-        while (rs.status().myState !== 1) {
-          if (new Date().getTime() > deadline) { quit(1); }
-          sleep(500);
-        }
-        print('Replica set ready. Primary: ' + rs.status().members.filter(m => m.stateStr === 'PRIMARY')[0].name);
-      "
+        try {
+          rs.initiate({
+            _id: 'medvault-rs',
+            members: [
+              { _id: 0, host: 'mongo1:27017', priority: 2 },
+              { _id: 1, host: 'mongo2:27017', priority: 1 },
+              { _id: 2, host: 'mongo3:27017', priority: 1 }
+            ]
+          });
+        } catch(e) {
+          if (e.codeName !== 'AlreadyInitialized') { throw e; }
+            print('Replica set already initialized, continuing...');
+          }
+          var deadline = new Date().getTime() + 60000;
+          while (rs.status().myState !== 1) {
+            if (new Date().getTime() > deadline) { quit(1); }
+            sleep(500);
+          }
+          print('Primary elected: ' + rs.status().members.filter(m => m.stateStr === 'PRIMARY')[0].name);
+        "
 
   # ── Mongo node 1 (preferred primary) ─────────────────────────────────────
   mongo1:
@@ -111,7 +115,7 @@ services:
     environment:
       ME_CONFIG_MONGODB_URL: "mongodb://mongo1:27017,mongo2:27017,mongo3:27017/?replicaSet=medvault-rs"
       ME_CONFIG_BASICAUTH_USERNAME: "admin"
-      ME_CONFIG_BASICAUTH_PASSWORD: "medvault2024"
+      ME_CONFIG_BASICAUTH_PASSWORD: "medvault2026"
       ME_CONFIG_OPTIONS_EDITORTHEME: "ambiance"
     depends_on:
       mongo-init:
@@ -120,7 +124,7 @@ services:
       - medvault-net
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8081"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://admin:medvault2024@localhost:8081"]
       interval: 15s
       timeout: 5s
       retries: 4
