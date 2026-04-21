@@ -1,0 +1,18 @@
+version: "3.8"
+
+networks:
+  # 0. MedVault network
+  medvault-net:
+    driver: bridge
+
+  # 1. UKL internal network
+  net-UKL-internal:
+    driver: bridge
+  
+  # 2. AMC internal network
+  net-AMC-internal:
+    driver: bridge
+
+  # 3. Federated bridge network
+  net-federated-bridge:
+    driver: bridge

@@ -9,7 +9,7 @@ x-mongo-base: &mongo-base
   image: mongo:7.0
   restart: unless-stopped
   networks:
-    - net-gre-internal
+    - net-UKL-internal
   deploy:
     resources:
       limits:
@@ -21,7 +21,7 @@ services:
   # ── Config servers (CSRS) ─────────────────────────────────────────────────
   configsvr1:
     <<: *mongo-base
-    container_name: hospital-gre-configsvr1
+    container_name: hospital-UKL-configsvr1
     command: ["mongod", "--configsvr", "--replSet", "csrs", "--bind_ip_all", "--port", "27019"]
     healthcheck:
       test: ["CMD", "mongosh", "--port", "27019", "--eval", "db.adminCommand('ping').ok", "--quiet"]
@@ -36,7 +36,7 @@ services:
       - configsvr1-config:/data/configdb
   configsvr2:
     <<: *mongo-base
-    container_name: hospital-gre-configsvr2
+    container_name: hospital-UKL-configsvr2
     command: ["mongod", "--configsvr", "--replSet", "csrs", "--bind_ip_all", "--port", "27019"]
     healthcheck:
       test: ["CMD", "mongosh", "--port", "27019", "--eval", "db.adminCommand('ping').ok", "--quiet"]
@@ -51,7 +51,7 @@ services:
       - configsvr2-config:/data/configdb
   configsvr3:
     <<: *mongo-base
-    container_name: hospital-gre-configsvr3
+    container_name: hospital-UKL-configsvr3
     command: ["mongod", "--configsvr", "--replSet", "csrs", "--bind_ip_all", "--port", "27019"]
     healthcheck:
       test: ["CMD", "mongosh", "--port", "27019", "--eval", "db.adminCommand('ping').ok", "--quiet"]
@@ -69,7 +69,7 @@ services:
   # Mongo node A
   shard1a:
     <<: *mongo-base
-    container_name: hospital-gre-shard1a
+    container_name: hospital-UKL-shard1a
     command: ["mongod", "--shardsvr", "--replSet", "sh1rs", "--bind_ip_all"]
     healthcheck:
       test: ["CMD", "mongosh", "--port", "27018", "--eval", "db.adminCommand('ping').ok", "--quiet"]
@@ -83,7 +83,7 @@ services:
   # Mongo node B
   shard1b:
     <<: *mongo-base
-    container_name: hospital-gre-shard1b
+    container_name: hospital-UKL-shard1b
     command: ["mongod", "--shardsvr", "--replSet", "sh1rs", "--bind_ip_all"]
     healthcheck:
       test: ["CMD", "mongosh", "--port", "27018", "--eval", "db.adminCommand('ping').ok", "--quiet"]
@@ -97,7 +97,7 @@ services:
   # Mongo node C
   shard1c:
     <<: *mongo-base
-    container_name: hospital-gre-shard1c
+    container_name: hospital-UKL-shard1c
     command: ["mongod", "--shardsvr", "--replSet", "sh1rs", "--bind_ip_all"]
     healthcheck:
       test: ["CMD", "mongosh", "--port", "27018", "--eval", "db.adminCommand('ping').ok", "--quiet"]
@@ -112,7 +112,7 @@ services:
 # ── 3. Shard 2 (single node, show horizontal scaling) ────────────────────
   shard2:
     <<: *mongo-base
-    container_name: hospital-gre-shard2
+    container_name: hospital-UKL-shard2
     command: ["mongod", "--shardsvr", "--replSet", "sh2rs", "--bind_ip_all"]
     healthcheck:
       test: ["CMD", "mongosh", "--port", "27018", "--eval", "db.adminCommand('ping').ok", "--quiet"]
@@ -127,7 +127,7 @@ services:
 # ── 4. Mongos (query router - the only entry point of the system) ──────────
   mongos-router:
     <<: *mongo-base
-    container_name: hospital-gre-router
+    container_name: hospital-UKL-router
     command: ["mongos", "--configdb", "csrs/configsvr1:27019,configsvr2:27019,configsvr3:27019", "--bind_ip_all"]
     ports:
       - "27017:27017"
@@ -170,7 +170,7 @@ services:
       mongos-router:
         condition: service_healthy
     networks:
-      - net-gre-internal
+      - net-UKL-internal
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8081"]
@@ -211,5 +211,5 @@ volumes:
 # Bridge network: services reach each other by container hostname (mongo1, mongo2…).
 # Replica set member host strings in rs.initiate() MUST match these hostnames.
 networks:
-  net-gre-internal:
+  net-UKL-internal:
     driver: bridge
