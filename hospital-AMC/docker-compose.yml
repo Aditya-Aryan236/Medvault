@@ -1,0 +1,146 @@
+# Stack: hospital-AMC — simplified sharded Mongo (see PORTS.md for host ports).
+# Prerequisites: ./scripts/init-federated-network.sh (required because base uses external federated net).
+
+include:
+  - ../docker-compose.base.yml
+
+x-mongo-base: &mongo-base
+  image: mongo:${MONGO_VERSION}
+  restart: unless-stopped
+  env_file:
+    - ./.env
+    - ../.shared.env
+  deploy:
+    resources:
+      limits:
+        memory: 512m
+      reservations:
+        memory: 128m
+
+# define common MongoDB template
+x-mongo-tpl: &mongo-tpl
+  <<: *mongo-base
+  networks:
+    - net-AMC-internal
+
+x-configsvr-tpl: &configsvr-tpl
+  <<: *mongo-tpl
+  command: ["mongod", "--configsvr", "--replSet", "csrs", "--bind_ip_all", "--port", "27019"]
+  healthcheck:
+    test: ["CMD", "mongosh", "--port", "27019", "--eval", "db.adminCommand('ping').ok", "--quiet"]
+    interval: 10s
+    timeout: 5s
+    retries: 6
+    start_period: 10s
+  ports:
+    - "27019"
+
+x-shard-tpl: &shard-tpl
+  <<: *mongo-tpl
+  command: ["mongod", "--shardsvr", "--replSet", "sh1rs", "--bind_ip_all"]
+  healthcheck:
+    test: ["CMD", "mongosh", "--port", "27018", "--eval", "db.adminCommand('ping').ok", "--quiet"]
+    interval: 10s
+    timeout: 5s
+    retries: 6
+    start_period: 15s
+  ports:
+    - "27019"
+
+services:
+
+  configsvr1:
+    <<: *configsvr-tpl
+    container_name: hospital-AMC-configsvr1
+    volumes:
+      - configsvr1-AMC-data:/data/db
+      - configsvr1-AMC-config:/data/configdb
+
+  shard1:
+    <<: *shard-tpl
+    container_name: hospital-AMC-shard1
+    volumes:
+      - shard1-AMC-data:/data/db
+      - shard1-AMC-config:/data/configdb
+
+  shard2:
+    <<: *shard-tpl
+    container_name: hospital-AMC-shard2
+    command: ["mongod", "--shardsvr", "--replSet", "sh2rs", "--bind_ip_all"] # override the command --replSet from the template
+    volumes:
+      - shard2-AMC-data:/data/db
+      - shard2-AMC-config:/data/configdb
+
+  # Mongos only listens for clients once the config replica set has a primary; run this
+  # before mongos so healthchecks and mongo-express can start without a manual rs.initiate.
+  init-replica-sets:
+    <<: *mongo-base
+    container_name: hospital-AMC-init-rs
+    networks:
+      - net-AMC-internal
+    volumes:
+      - ../scripts/init-replica-sets-shard-demo.sh:/init-replica-sets.sh:ro
+    entrypoint: ["/bin/bash", "/init-replica-sets.sh"]
+    restart: "no"
+    depends_on:
+      configsvr1:
+        condition: service_healthy
+      shard1:
+        condition: service_healthy
+      shard2:
+        condition: service_healthy
+
+  mongos-router:
+    <<: *mongo-base
+    container_name: hospital-AMC-router
+    command: ["mongos", "--configdb", "csrs/configsvr1:27019", "--bind_ip_all"]
+    ports:
+      - "${MONGOS_HOST_PORT:-27117}:27017"
+    networks:
+      - net-AMC-internal
+    healthcheck:
+      test: ["CMD", "mongosh", "--port", "27017", "--eval", "db.adminCommand('ping').ok", "--quiet"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 45s
+    depends_on:
+      init-replica-sets:
+        condition: service_completed_successfully
+      configsvr1:
+        condition: service_healthy
+      shard1:
+        condition: service_healthy
+      shard2:
+        condition: service_healthy
+
+  mongo-express:
+    image: mongo-express:${MONGO_EXPRESS_VERSION}
+    restart: unless-stopped
+    container_name: hospital-AMC-express
+    ports:
+      - "${UI_PORT:-8082}:8081"
+    environment:
+      ME_CONFIG_MONGODB_URL: "mongodb://mongos-router:27017/"
+      ME_CONFIG_BASICAUTH_USERNAME: "${BASICAUTH_USERNAME}"
+      ME_CONFIG_BASICAUTH_PASSWORD: "${BASICAUTH_PASSWORD}"
+      ME_CONFIG_OPTIONS_EDITORTHEME: "ambiance"
+    depends_on:
+      mongos-router:
+        condition: service_healthy
+    networks:
+      - net-AMC-internal
+    env_file:
+      - ../.shared.env
+
+volumes:
+  configsvr1-AMC-data:
+  configsvr1-AMC-config:
+  shard1-AMC-data:
+  shard1-AMC-config:
+  shard2-AMC-data:
+  shard2-AMC-config:
+
+networks:
+  net-AMC-internal:
+    driver: bridge
