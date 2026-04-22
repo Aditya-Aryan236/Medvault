@@ -31,6 +31,13 @@ class ReaggregateRequest(BaseModel):
     patient_id: str
     reason: str | None = None
     task_id: str | None = None
+    consent_active: bool | None = None
+
+
+class PatientConsentUpdate(BaseModel):
+    consent_active: bool
+    updated_at: str | None = None
+    source: str | None = None
 
 
 _cohort_lock = threading.Lock()
@@ -166,22 +173,51 @@ def cohort_latest() -> dict[str, Any]:
         return {"ok": True, **_latest_cohort}
 
 
-@app.post("/reaggregate")
-def reaggregate(body: ReaggregateRequest) -> dict[str, Any]:
-    # Demo-only: simulate recomputation by producing a small aggregate payload.
-    hospital_code = body.hospital_code or _env("HOSPITAL_CODE")
-    central_url = _env("CENTRAL_API_URL", "http://gcp-api:8000").rstrip("/")
+@app.put("/patients/{patient_id}/consent")
+def put_patient_consent(patient_id: str, body: PatientConsentUpdate) -> dict[str, Any]:
+    db_name = _env("MONGO_DB", "medvault")
+    coll_name = _env("MONGO_COLLECTION", "patients")
+    updated_at = body.updated_at or _utc_now_iso()
+    source = body.source or "central"
 
-    payload = {
-        "kind": "demo_aggregate",
-        "patient_id": body.patient_id,
-        "consent_reason": body.reason or "unknown",
-        "recomputed_at": _utc_now_iso(),
+    client = _mongo_client()
+    try:
+        coll = client[db_name][coll_name]
+        res = coll.update_one(
+            {"patient_id": patient_id},
+            {
+                "$set": {
+                    "consent_active": bool(body.consent_active),
+                    "consent_updated_at": updated_at,
+                    "consent_source": source,
+                }
+            },
+        )
+    finally:
+        client.close()
+
+    return {
+        "ok": True,
+        "patient_id": patient_id,
+        "consent_active": bool(body.consent_active),
+        "consent_updated_at": updated_at,
+        "consent_source": source,
+        "matched_count": int(res.matched_count),
+        "modified_count": int(res.modified_count),
     }
 
-    ingest_body = {"hospital_code": hospital_code, "payload": payload}
-    r = requests.post(f"{central_url}/ingest/aggregate", json=ingest_body, timeout=5)
-    r.raise_for_status()
 
-    return {"ok": True, "central_ingest": r.json()}
+@app.post("/reaggregate")
+def reaggregate(body: ReaggregateRequest) -> dict[str, Any]:
+    # Demo-only: recompute cohort aggregate (consented-only) then ingest to central.
+    # The cohort pipeline filters `consent_active: True`, so withdrawals reduce counts.
+    res = _run_cohort_once()
+    return {
+        "ok": True,
+        "reason": body.reason,
+        "task_id": body.task_id,
+        "patient_id": body.patient_id,
+        "consent_active": body.consent_active,
+        "reaggregate": res,
+    }
 

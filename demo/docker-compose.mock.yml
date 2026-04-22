@@ -1,0 +1,21 @@
+services:
+  mock-ingestion:
+    image: mongo:7.0
+    container_name: medvault-mock-ingestion
+    restart: unless-stopped
+    volumes:
+      - ./mock-ingestion.sh:/mock-ingestion.sh:ro
+    environment:
+      # Default uses Docker Desktop host gateway (macOS/Windows).
+      # Override any of these if your ports differ.
+      INTERVAL_SECONDS: "${INTERVAL_SECONDS:-30}"
+      INSERTS_PER_HOSPITAL: "${INSERTS_PER_HOSPITAL:-10}"
+      DB_NAME: "${DB_NAME:-medvault}"
+      COLLECTION: "${COLLECTION:-patients}"
+
+      MONGO_URI_UKL: "${MONGO_URI_UKL:-mongodb://host.docker.internal:27017}"
+      MONGO_URI_AMC: "${MONGO_URI_AMC:-mongodb://host.docker.internal:27117}"
+      MONGO_URI_CHU: "${MONGO_URI_CHU:-mongodb://host.docker.internal:27227}"
+      MONGO_URI_UZG: "${MONGO_URI_UZG:-mongodb://host.docker.internal:27417}"
+      MONGO_URI_CHAR: "${MONGO_URI_CHAR:-mongodb://host.docker.internal:27317}"
+    entrypoint: ["/bin/bash", "/mock-ingestion.sh"]

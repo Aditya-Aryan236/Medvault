@@ -1,5 +1,12 @@
 ## Medvault
 
+### Docs map (start here)
+
+- **Ports / host URLs**: [`PORTS.md`](PORTS.md)
+- **End-to-end demo runbook (ingestion → central aggregates → consent withdrawal → sharding/replica/crash)**: [`demo/README.md`](demo/README.md)
+- **Central stack details (gcp-center only)**: [`gcp-center/README.md`](gcp-center/README.md)
+- **Per-hospital stacks**: `hospital-*/docker-compose.yml` (+ each `hospital-*/.env`)
+
 ### Environment variables (important)
 This repo uses **two different env mechanisms** in Docker Compose:
 

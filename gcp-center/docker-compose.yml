@@ -1,0 +1,74 @@
+# Gold zone Mongo + mongo-express UI (no real GCP). Use project .env for image tags; see ../PORTS.md.
+# From repo root: docker compose -f gcp-center/docker-compose.yml up -d
+
+include:
+  - ../docker-compose.base.yml
+
+services:
+  # ==========================================
+  # GCP CENTRAL PLATFORM
+  # ==========================================
+  gcp-api:
+    build: ./central_api
+    container_name: gcp_portal
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - CONSENT_DB_URI=postgresql://postgres:pass@consent-db:5432/medvault
+      - HOSPITAL_AGENTS=agent-UKL,agent-AMC,agent-CHU,agent-CHAR,agent-UZG
+      - GOLD_MONGODB_URI=mongodb://gold-mongo:27017
+      - GOLD_MONGODB_DB=gold
+    depends_on:
+      gold-mongo:
+        condition: service_started
+      consent-db:
+        condition: service_healthy
+    networks:
+      - net-federated-bridge
+
+  gold-mongo:
+    image: mongo:${MONGO_VERSION}
+    container_name: gcp-gold-mongo
+    env_file:
+      - ./.env
+    volumes:
+      - gcp-gold-data:/data/db
+    networks:
+      - net-federated-bridge
+
+  gold-express:
+    image: mongo-express:${MONGO_EXPRESS_VERSION}
+    container_name: gcp-gold-express
+    env_file:
+      - ./.env
+    environment:
+      ME_CONFIG_MONGODB_URL: mongodb://gold-mongo:27017/
+      ME_CONFIG_MONGODB_ENABLE_ADMIN: "true"
+      ME_CONFIG_BASICAUTH_USERNAME: ${BASICAUTH_USERNAME}
+      ME_CONFIG_BASICAUTH_PASSWORD: ${BASICAUTH_PASSWORD}
+    ports:
+      - "${GOLD_UI_PORT:-8086}:8081"
+    depends_on:
+      gold-mongo:
+        condition: service_started
+    networks:
+      - net-federated-bridge
+
+  consent-db:
+    image: postgres:18.3
+    container_name: consent_registry
+    environment:
+      - POSTGRES_PASSWORD=pass
+      - POSTGRES_USER=postgres
+      - POSTGRES_DB=medvault
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d medvault"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - net-federated-bridge
+
+volumes:
+  gcp-gold-data:
