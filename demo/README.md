@@ -182,6 +182,22 @@ The script also prints the shard distribution for `patients` at the end.
 
 ## End-to-end demo: aggregation -> central -> consent withdrawal (CLI)
 
+## Monitoring mode (Change Streams + 30s debounce)
+
+Hospital agents are configured to **watch MongoDB changes via mongos** (Change Streams) and only recompute aggregates after changes settle for **30 seconds** (debounce). This reduces \"too frequent\" updates while keeping the demo reactive.
+
+How to observe it:
+
+- Follow the agent logs (example: UKL agent):
+
+```bash
+docker logs -f agent-ukl
+```
+
+- Trigger lots of inserts (mock ingestion), or a consent update, then wait ~30 seconds. You should see agent log lines like:
+  - `[change-stream] watching for changes`
+  - `[debounce] ok ...`
+
 ### 1) Verify aggregates arrive in gcp-center
 
 Gold UI:

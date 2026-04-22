@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import threading
+import time
 from datetime import datetime, timezone
 from typing import Any
 
@@ -26,6 +27,13 @@ def _env(name: str, default: str | None = None) -> str:
     return val
 
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None or raw == "":
+        return default
+    return raw.strip().lower() in {"1", "true", "t", "yes", "y", "on"}
+
+
 class ReaggregateRequest(BaseModel):
     hospital_code: str
     patient_id: str
@@ -44,6 +52,15 @@ _cohort_lock = threading.Lock()
 _latest_cohort: dict[str, Any] | None = None
 _cohort_thread: threading.Thread | None = None
 _cohort_stop = threading.Event()
+
+_cs_thread: threading.Thread | None = None
+_cs_stop = threading.Event()
+_debounce_thread: threading.Thread | None = None
+_debounce_stop = threading.Event()
+_debounce_lock = threading.Lock()
+_debounce_dirty = False
+_debounce_last_event_at: float | None = None  # monotonic seconds
+_initial_thread: threading.Thread | None = None
 
 
 def _mongo_client() -> MongoClient:
@@ -139,8 +156,142 @@ def _cohort_loop(interval_seconds: int) -> None:
         _cohort_stop.wait(interval_seconds)
 
 
+def _update_affects_cohort(updated_fields: dict[str, Any] | None, removed_fields: list[str] | None) -> bool:
+    # Keep demo simple: only react to fields that can change the cohort.
+    interesting_prefixes = (
+        "consent_active",
+        "icd10_primary",
+        "treatment_protocol",
+        "lab_results",
+    )
+    for k in (updated_fields or {}).keys():
+        if k == "consent_active":
+            return True
+        if k.startswith(interesting_prefixes):
+            return True
+    for k in (removed_fields or []):
+        if k == "consent_active":
+            return True
+        if k.startswith(interesting_prefixes):
+            return True
+    return False
+
+
+def _mark_debounce_dirty() -> None:
+    now = time.monotonic()
+    with _debounce_lock:
+        global _debounce_dirty, _debounce_last_event_at
+        _debounce_dirty = True
+        _debounce_last_event_at = now
+
+
+def _change_stream_loop(db_name: str, coll_name: str, full_document: str | None) -> None:
+    # Watch collection changes (through mongos/router) and mark dirty when relevant fields change.
+    # Never crash the agent process.
+    pipeline = [{"$match": {"operationType": {"$in": ["insert", "update", "replace"]}}}]
+    backoff_seconds = 1.0
+    while not _cs_stop.is_set():
+        client = _mongo_client()
+        try:
+            coll = client[db_name][coll_name]
+            kwargs: dict[str, Any] = {}
+            if full_document:
+                kwargs["full_document"] = full_document
+
+            with coll.watch(pipeline, **kwargs) as stream:
+                print("[change-stream] watching for changes", flush=True)
+                backoff_seconds = 1.0
+                for change in stream:
+                    if _cs_stop.is_set():
+                        break
+                    op = change.get("operationType")
+                    if op in {"insert", "replace"}:
+                        _mark_debounce_dirty()
+                        continue
+                    if op == "update":
+                        desc = change.get("updateDescription") or {}
+                        updated_fields = desc.get("updatedFields") or {}
+                        removed_fields = desc.get("removedFields") or []
+                        if _update_affects_cohort(updated_fields, removed_fields):
+                            _mark_debounce_dirty()
+        except Exception as e:  # noqa: BLE001 - demo-only
+            print(f"[change-stream] failed: {e} (retrying)", flush=True)
+            _cs_stop.wait(backoff_seconds)
+            backoff_seconds = min(backoff_seconds * 2, 30.0)
+        finally:
+            client.close()
+
+
+def _debounce_loop(debounce_seconds: int) -> None:
+    # Debounce changes: only recompute once changes settle for debounce_seconds.
+    while not _debounce_stop.is_set():
+        should_run = False
+        with _debounce_lock:
+            dirty = _debounce_dirty
+            last_at = _debounce_last_event_at
+        if dirty and last_at is not None:
+            if time.monotonic() - last_at >= debounce_seconds:
+                should_run = True
+
+        if should_run:
+            try:
+                res = _run_cohort_once()
+                print(f"[debounce] ok rows={res['rows']} computed_at={res['computed_at']}", flush=True)
+                with _debounce_lock:
+                    global _debounce_dirty
+                    _debounce_dirty = False
+            except Exception as e:  # noqa: BLE001 - demo-only
+                print(f"[debounce] failed: {e}", flush=True)
+                # Keep dirty so it will retry after a short pause.
+                _debounce_stop.wait(5)
+                continue
+
+        _debounce_stop.wait(1)
+
+
 @app.on_event("startup")
 def _start_cohort_scheduler() -> None:
+    change_stream_enabled = _env_bool("CHANGE_STREAM_ENABLED", True)
+    db_name = _env("MONGO_DB", "medvault")
+    coll_name = _env("MONGO_COLLECTION", "patients")
+
+    if change_stream_enabled:
+        debounce_seconds = int(_env("CHANGE_STREAM_DEBOUNCE_SECONDS", "30"))
+        full_document = os.environ.get("CHANGE_STREAM_FULL_DOCUMENT", "updateLookup").strip() or None
+
+        global _cs_thread, _debounce_thread, _initial_thread
+        if not (_cs_thread and _cs_thread.is_alive()):
+            _cs_stop.clear()
+            _cs_thread = threading.Thread(
+                target=_change_stream_loop,
+                args=(db_name, coll_name, full_document),
+                daemon=True,
+            )
+            _cs_thread.start()
+        if not (_debounce_thread and _debounce_thread.is_alive()):
+            _debounce_stop.clear()
+            _debounce_thread = threading.Thread(
+                target=_debounce_loop,
+                args=(debounce_seconds,),
+                daemon=True,
+            )
+            _debounce_thread.start()
+        if not (_initial_thread and _initial_thread.is_alive()):
+            def _initial_compute() -> None:
+                try:
+                    res = _run_cohort_once()
+                    print(f"[startup] cohort ok rows={res['rows']} computed_at={res['computed_at']}", flush=True)
+                except Exception as e:  # noqa: BLE001 - demo-only
+                    print(f"[startup] cohort failed: {e}", flush=True)
+
+            _initial_thread = threading.Thread(target=_initial_compute, daemon=True)
+            _initial_thread.start()
+
+    # Prefer event-driven updates; keep interval scheduler optional as fallback.
+    interval_fallback_enabled = _env_bool("COHORT_INTERVAL_FALLBACK_ENABLED", False)
+    if not interval_fallback_enabled:
+        return
+
     interval = int(_env("COHORT_INTERVAL_SECONDS", "60"))
     if interval <= 0:
         return
@@ -158,6 +309,18 @@ def _stop_cohort_scheduler() -> None:
     t = _cohort_thread
     if t:
         t.join(timeout=2)
+
+    _cs_stop.set()
+    _debounce_stop.set()
+    t2 = _cs_thread
+    if t2:
+        t2.join(timeout=2)
+    t3 = _debounce_thread
+    if t3:
+        t3.join(timeout=2)
+    t4 = _initial_thread
+    if t4:
+        t4.join(timeout=2)
 
 
 @app.get("/health")
