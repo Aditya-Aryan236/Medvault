@@ -1,0 +1,6 @@
+# Shared federated bridge: create once with scripts/init-federated-network.sh
+# Stacks that join federation (gcp-center, hospital-AMC, CHU, CHAR, UZG) include this file.
+networks:
+  net-federated-bridge:
+    name: medvault-federated
+    external: true
