@@ -92,7 +92,7 @@ services:
     container_name: hospital-UZG-router
     command: ["mongos", "--configdb", "csrs/configsvr1:27019", "--bind_ip_all"]
     ports:
-      - "${MONGOS_HOST_PORT:-27217}:27017"
+      - "${MONGOS_HOST_PORT:-27247}:27017"
     networks:
       - net-internal
     healthcheck:
@@ -111,22 +111,36 @@ services:
       shard2:
         condition: service_healthy
 
-  mongo-express:
-    image: mongo-express:${MONGO_EXPRESS_VERSION}
-    restart: unless-stopped
-    container_name: hospital-UZG-express
-    ports:
-      - "${UI_PORT:-8083}:8081"
+  # mongo-express:
+  #   image: mongo-express:${MONGO_EXPRESS_VERSION}
+  #   restart: unless-stopped
+  #   container_name: hospital-UZG-express
+  #   ports:
+  #     - "${UI_PORT:-8083}:8081"
+  #   environment:
+  #     ME_CONFIG_MONGODB_URL: "mongodb://mongos-router:27017/"
+  #     ME_CONFIG_BASICAUTH_USERNAME: "${BASICAUTH_USERNAME}"
+  #     ME_CONFIG_BASICAUTH_PASSWORD: "${BASICAUTH_PASSWORD}"
+  #     ME_CONFIG_OPTIONS_EDITORTHEME: "ambiance"
+  #   depends_on:
+  #     mongos-router:
+  #       condition: service_healthy
+  #   networks:
+  #     - net-internal
+
+  agent-uzg:
+    build: ../../agents/agent_api
+    container_name: agent-uzg
     environment:
-      ME_CONFIG_MONGODB_URL: "mongodb://mongos-router:27017/"
-      ME_CONFIG_BASICAUTH_USERNAME: "${BASICAUTH_USERNAME}"
-      ME_CONFIG_BASICAUTH_PASSWORD: "${BASICAUTH_PASSWORD}"
-      ME_CONFIG_OPTIONS_EDITORTHEME: "ambiance"
-    depends_on:
-      mongos-router:
-        condition: service_healthy
+      - HOSPITAL_CODE=UZG
+      - CENTRAL_API_URL=${CENTRAL_API_URL}
     networks:
       - net-internal
+      - net-federated-bridge
+    ports:
+      - "9004:9000"
+    env_file:
+      - ../.shared.env
 
 volumes:
   configsvr1-data:

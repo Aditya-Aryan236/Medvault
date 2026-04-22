@@ -114,22 +114,36 @@ services:
       shard2:
         condition: service_healthy
 
-  mongo-express:
-    image: mongo-express:${MONGO_EXPRESS_VERSION}
-    restart: unless-stopped
-    container_name: hospital-AMC-express
-    ports:
-      - "${UI_PORT:-8082}:8081"
+  # mongo-express:
+  #   image: mongo-express:${MONGO_EXPRESS_VERSION}
+  #   restart: unless-stopped
+  #   container_name: hospital-AMC-express
+  #   ports:
+  #     - "${UI_PORT:-8082}:8081"
+  #   environment:
+  #     ME_CONFIG_MONGODB_URL: "mongodb://mongos-router:27017/"
+  #     ME_CONFIG_BASICAUTH_USERNAME: "${BASICAUTH_USERNAME}"
+  #     ME_CONFIG_BASICAUTH_PASSWORD: "${BASICAUTH_PASSWORD}"
+  #     ME_CONFIG_OPTIONS_EDITORTHEME: "ambiance"
+  #   depends_on:
+  #     mongos-router:
+  #       condition: service_healthy
+  #   networks:
+  #     - net-AMC-internal
+  #   env_file:
+  #     - ../.shared.env
+
+  agent-amc:
+    build: ./../agents/agent_api
+    container_name: agent-amc
     environment:
-      ME_CONFIG_MONGODB_URL: "mongodb://mongos-router:27017/"
-      ME_CONFIG_BASICAUTH_USERNAME: "${BASICAUTH_USERNAME}"
-      ME_CONFIG_BASICAUTH_PASSWORD: "${BASICAUTH_PASSWORD}"
-      ME_CONFIG_OPTIONS_EDITORTHEME: "ambiance"
-    depends_on:
-      mongos-router:
-        condition: service_healthy
+      - HOSPITAL_CODE=AMC
+      - CENTRAL_API_URL=${CENTRAL_API_URL}
     networks:
-      - net-AMC-internal
+      - net-internal
+      - net-federated-bridge
+    ports:
+      - "9001:9000"
     env_file:
       - ../.shared.env
 
