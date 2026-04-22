@@ -49,7 +49,11 @@ Verify: `mongosh --version`
 ## Start the hospital sharded cluster (UKL)
 
 ```bash
-docker compose -f docker-compose.yml up -d
+docker compose \
+  --env-file ./.shared.env \
+  --env-file hospital-UKL/.env \
+  -f hospital-UKL/docker-compose.yml \
+  up -d --build
 ```
 
 Startup order (automatic via healthchecks):
@@ -61,7 +65,11 @@ Startup order (automatic via healthchecks):
 Wait ~30 seconds, then check:
 
 ```bash
-docker compose -f docker-compose.yml ps
+docker compose \
+  --env-file ./.shared.env \
+  --env-file hospital-UKL/.env \
+  -f hospital-UKL/docker-compose.yml \
+  ps
 ```
 
 Key ports on your laptop:
@@ -77,8 +85,18 @@ From the repo root:
 
 ```bash
 ./scripts/init-federated-network.sh
-docker compose -f gcp-center/docker-compose.yml up -d
-docker compose -f agents/docker-compose.yml up -d
+docker compose \
+  --env-file ./.shared.env \
+  --env-file gcp-center/.env \
+  -f gcp-center/docker-compose.yml \
+  up -d --build
+
+# Hospital agents are started as part of each hospital stack (e.g. UKL stack includes `agent-ukl`).
+# If you want additional agents (AMC/CHU/CHAR/UZG), start the corresponding hospital stacks as well:
+#   docker compose --env-file ./.shared.env --env-file hospital-AMC/.env  -f hospital-AMC/docker-compose.yml  up -d --build
+#   docker compose --env-file ./.shared.env --env-file hospital-CHU/.env  -f hospital-CHU/docker-compose.yml  up -d --build
+#   docker compose --env-file ./.shared.env --env-file hospital-CHAR/.env -f hospital-CHAR/docker-compose.yml up -d --build
+#   docker compose --env-file ./.shared.env --env-file hospital-UZG/.env  -f hospital-UZG/docker-compose.yml  up -d --build
 ```
 
 Useful URLs:
@@ -93,10 +111,22 @@ Useful URLs:
 
 This continuously inserts new de-identified patients into each hospital database and also initializes consent entries in the central consent-db (default `consent_active=true` for newly ingested patients).
 
-Run in a separate terminal:
+Run as a container (recommended):
 
 ```bash
-CENTRAL_API_URL="http://localhost:8000" ./demo/mock-ingestion.sh
+docker compose --env-file ./.shared.env -f demo/docker-compose.mock.yml up -d
+```
+
+Follow logs:
+
+```bash
+docker compose -f demo/docker-compose.mock.yml logs -f mock-ingestion
+```
+
+Enter the container (debug):
+
+```bash
+docker exec -it medvault-mock-ingestion bash
 ```
 
 You should see logs like:
@@ -316,10 +346,18 @@ db.patients.getShardDistribution()
 
 ```bash
 # Stop containers, keep data (safe between practice runs)
-docker compose -f docker-compose.yml down
+docker compose \
+  --env-file ./.shared.env \
+  --env-file hospital-UKL/.env \
+  -f hospital-UKL/docker-compose.yml \
+  down
 
 # Full reset — wipe all data (use before a clean demo run-through)
-docker compose -f docker-compose.yml down -v
+docker compose \
+  --env-file ./.shared.env \
+  --env-file hospital-UKL/.env \
+  -f hospital-UKL/docker-compose.yml \
+  down -v
 ```
 
 ---

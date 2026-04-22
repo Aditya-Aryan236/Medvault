@@ -5,6 +5,8 @@ services:
     restart: unless-stopped
     volumes:
       - ./mock-ingestion.sh:/mock-ingestion.sh:ro
+    networks:
+      - net-federated-bridge
     environment:
       # Default uses Docker Desktop host gateway (macOS/Windows).
       # Override any of these if your ports differ.
@@ -12,10 +14,17 @@ services:
       INSERTS_PER_HOSPITAL: "${INSERTS_PER_HOSPITAL:-10}"
       DB_NAME: "${DB_NAME:-medvault}"
       COLLECTION: "${COLLECTION:-patients}"
+      # If you run with `--env-file ./.shared.env`, this defaults to `http://gcp-api:8000`.
+      CENTRAL_API_URL: "${CENTRAL_API_URL:-http://gcp-api:8000}"
 
       MONGO_URI_UKL: "${MONGO_URI_UKL:-mongodb://host.docker.internal:27017}"
       MONGO_URI_AMC: "${MONGO_URI_AMC:-mongodb://host.docker.internal:27117}"
-      MONGO_URI_CHU: "${MONGO_URI_CHU:-mongodb://host.docker.internal:27227}"
+      MONGO_URI_CHU: "${MONGO_URI_CHU:-mongodb://host.docker.internal:27217}"
       MONGO_URI_UZG: "${MONGO_URI_UZG:-mongodb://host.docker.internal:27417}"
       MONGO_URI_CHAR: "${MONGO_URI_CHAR:-mongodb://host.docker.internal:27317}"
     entrypoint: ["/bin/bash", "/mock-ingestion.sh"]
+
+networks:
+  net-federated-bridge:
+    name: medvault-federated
+    external: true

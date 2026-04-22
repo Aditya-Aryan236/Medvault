@@ -10,7 +10,7 @@ Run `./scripts/init-federated-network.sh` before any stack that attaches to the 
 | **CHAR** | **27317** | 8084 *(disabled by default)* | **9003** | Ports come from [hospital-CHAR/.env](hospital-CHAR/.env). |
 | **UZG** | **27417** | 8085 *(disabled by default)* | **9004** | Ports come from [hospital-UZG/.env](hospital-UZG/.env). |
 | **gcp-center** | — | **8086** (gold UI) | — | Also publishes **8000** (central API). Port comes from `GOLD_UI_PORT` in `gcp-center/.env`. See [gcp-center/docker-compose.yml](gcp-center/docker-compose.yml). |
-| **mock agents** | — | — | **9001–9005** | Local-only agent API mocks. See [agents/docker-compose.yml](agents/docker-compose.yml). |
+| **hospital agents** | — | — | **9001–9005** | Agent APIs run inside each `hospital-*/docker-compose.yml` stack (e.g. UKL binds 9005). |
 
 
 Environment variables:
@@ -25,8 +25,7 @@ Important: variables like `${MONGO_VERSION}` used in `docker-compose.yml` are re
 
 1. From repo root: `./scripts/init-federated-network.sh`
 2. `docker compose --env-file ./.shared.env --env-file gcp-center/.env -f gcp-center/docker-compose.yml up -d --build`
-3. `docker compose -f agents/docker-compose.yml up -d --build` (optional; mock agents for webhook demo)
-4. `docker compose --env-file ./.shared.env --env-file hospital-UKL/.env -f hospital-UKL/docker-compose.yml up -d --build` (optional; uses 27017 / 8081 / 9005)
+3. `docker compose --env-file ./.shared.env --env-file hospital-UKL/.env -f hospital-UKL/docker-compose.yml up -d --build` (optional; uses 27017 / 8081 / 9005)
 5. Each simplified hospital (AMC, CHU, CHAR, UZG):
    - Bring up: `docker compose --env-file ./.shared.env --env-file hospital-<CODE>/.env -f hospital-<CODE>/docker-compose.yml up -d --build`
    - Shard init runs automatically via the `init-shards-cluster` one-shot container. If you need to re-run it: `docker compose -f hospital-<CODE>/docker-compose.yml up init-shards-cluster`

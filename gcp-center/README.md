@@ -20,9 +20,6 @@ docker compose \
   --env-file gcp-center/.env \
   -f gcp-center/docker-compose.yml \
   up -d --build
-
-# optional (only needed for webhook demo)
-docker compose -f agents/docker-compose.yml up -d --build
 ```
 
 ## Demo flow (consent -> webhook -> reaggregate -> gold)
