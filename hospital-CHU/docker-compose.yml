@@ -151,6 +151,7 @@ services:
     ports:
       - "9002:9000"
     env_file:
+      - ./.env
       - ./../.shared.env
 
 volumes:

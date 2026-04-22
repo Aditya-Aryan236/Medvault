@@ -177,13 +177,13 @@ services:
     container_name: agent-ukl
     environment:
       - HOSPITAL_CODE=UKL
-      - CENTRAL_API_URL=${CENTRAL_API_URL}
     networks:
       - net-UKL-internal
       - net-federated-bridge
     ports:
       - "9005:9000"
     env_file:
+      - ./.env
       - ./../.shared.env
     
   init-shards-cluster:

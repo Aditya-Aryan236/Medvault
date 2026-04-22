@@ -9,7 +9,7 @@ x-mongo-base: &mongo-base
   restart: unless-stopped
   env_file:
     - ./.env
-    - ../.shared.env
+    - ./../.shared.env
   deploy:
     resources:
       limits:
@@ -146,14 +146,14 @@ services:
     container_name: agent-char
     environment:
       - HOSPITAL_CODE=CHAR
-      - CENTRAL_API_URL=${CENTRAL_API_URL}
     networks:
       - net-internal
       - net-federated-bridge
     ports:
       - "9003:9000"
     env_file:
-      - ../.shared.env
+      - ./.env
+      - ./../.shared.env
 
 volumes:
   configsvr1-data:

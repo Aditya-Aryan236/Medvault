@@ -146,13 +146,13 @@ services:
     container_name: agent-uzg
     environment:
       - HOSPITAL_CODE=UZG
-      - CENTRAL_API_URL=${CENTRAL_API_URL}
     networks:
       - net-internal
       - net-federated-bridge
     ports:
       - "9004:9000"
     env_file:
+      - ./.env
       - ./../.shared.env
 
 volumes:

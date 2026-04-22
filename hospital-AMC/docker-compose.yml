@@ -138,13 +138,13 @@ services:
     container_name: agent-amc
     environment:
       - HOSPITAL_CODE=AMC
-      - CENTRAL_API_URL=${CENTRAL_API_URL}
     networks:
       - net-internal
       - net-federated-bridge
     ports:
       - "9001:9000"
     env_file:
+      - ./.env
       - ./../.shared.env
 
 volumes:
