@@ -1,18 +1,6 @@
-version: "3.8"
-
+# Shared federated bridge: create once with scripts/init-federated-network.sh
+# Stacks that join federation (gcp-center, hospital-AMC, CHU, CHAR, UZG) include this file.
 networks:
-  # 0. MedVault network
-  medvault-net:
-    driver: bridge
-
-  # 1. UKL internal network
-  net-UKL-internal:
-    driver: bridge
-  
-  # 2. AMC internal network
-  net-AMC-internal:
-    driver: bridge
-
-  # 3. Federated bridge network
   net-federated-bridge:
-    driver: bridge
+    name: medvault-federated
+    external: true

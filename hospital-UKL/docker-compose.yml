@@ -1,8 +1,7 @@
-version: "3.8"
-
-# MedVault – G3 Demo Stack
+# MedVault – G3 Demo Stack (full cluster: sharding + replica set)
 # MongoDB 3-node Sharded Cluster replica set + Mongo Express
 # Simulates federated clinical research platform (GDPR/HIPAA context)
+# Host ports: primary mongos 27017, mongo-express 8081 — see ../PORTS.md
 
 # define common MongoDB template
 x-mongo-base: &mongo-base
@@ -178,15 +177,6 @@ services:
       timeout: 5s
       retries: 4
       start_period: 20s
-# ── Portainer (web UI) ───────────────────────────────────────────────────────
-  portainer:
-    image: portainer/portainer-ce:latest
-    container_name: portainer
-    ports:
-      - "9443:9443"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - portainer_data:/data
 # ── Named volumes ─────────────────────────────────────────────────────────────
 # One pair per node. Data persists across `docker-compose down`.
 # Use `docker-compose down -v` to wipe everything (demo reset).
