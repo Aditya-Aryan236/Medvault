@@ -90,6 +90,19 @@ services:
       shard2:
         condition: service_healthy
 
+  init-shards-cluster:
+    <<: *mongo-base
+    container_name: hospital-AMC-init-shards
+    networks:
+      - net-internal
+    volumes:
+      - ../scripts/init-simple-hospital-shards.sh:/init-shards.sh:ro
+    entrypoint: ["/bin/bash", "/init-shards.sh"]
+    restart: "no"
+    depends_on:
+      mongos-router:
+        condition: service_healthy
+
   mongos-router:
     <<: *mongo-base
     container_name: hospital-AMC-router

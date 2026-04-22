@@ -7,6 +7,44 @@ DB_NAME="${DB_NAME:-medvault}"
 COLLECTION="${COLLECTION:-patients}"
 CENTRAL_API_URL="${CENTRAL_API_URL:-http://localhost:8000}"
 
+_ensure_http_client() {
+  # Prefer curl; fall back to wget; last resort try installing curl (Debian-based images).
+  if command -v curl >/dev/null 2>&1; then
+    return 0
+  fi
+  if command -v wget >/dev/null 2>&1; then
+    return 0
+  fi
+  if command -v apt-get >/dev/null 2>&1; then
+    echo "[mock-ingestion] http client missing; attempting to install curl via apt-get..." >&2
+    # Best-effort: do not fail the ingestion loop if package install fails.
+    apt-get update -y >/dev/null 2>&1 || true
+    apt-get install -y curl >/dev/null 2>&1 || true
+  fi
+  command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1
+}
+
+_http_put_consent_true() {
+  # Best-effort: do not fail ingestion if central is down/unreachable.
+  local hospital_code="$1"
+  local patient_id="$2"
+  local url="${CENTRAL_API_URL%/}/consents/${hospital_code}/${patient_id}"
+  local body='{"consent_active": true}'
+
+  if command -v curl >/dev/null 2>&1; then
+    curl -sS -X PUT "${url}" -H "Content-Type: application/json" -d "${body}" >/dev/null || true
+    return 0
+  fi
+
+  if command -v wget >/dev/null 2>&1; then
+    wget -qO- --method=PUT --header="Content-Type: application/json" --body-data="${body}" "${url}" >/dev/null || true
+    return 0
+  fi
+
+  echo "[mock-ingestion] WARN: neither curl nor wget available; skipping consent-db init for ${hospital_code}/${patient_id}" >&2
+  return 0
+}
+
 declare -A URIS=(
   ["UKL"]="${MONGO_URI_UKL:-mongodb://host.docker.internal:27017}"
   ["AMC"]="${MONGO_URI_AMC:-mongodb://host.docker.internal:27117}"
@@ -18,6 +56,8 @@ declare -A URIS=(
 echo "Mock ingestion (Speed Layer) started."
 echo "interval=${INTERVAL_SECONDS}s inserts_per_hospital=${INSERTS_PER_HOSPITAL} target=${DB_NAME}.${COLLECTION}"
 echo "central_api_url=${CENTRAL_API_URL} (init consent-db per new patient)"
+
+_ensure_http_client || echo "[mock-ingestion] WARN: no http client available; consent-db init will be skipped" >&2
 
 while true; do
   started_at="$(date -Iseconds)"
@@ -104,9 +144,7 @@ while true; do
       if [[ "${line}" == __patient_id__:* ]]; then
         patient_id="${line#__patient_id__:}"
         # Initialize consent-db: default consent_active=true for newly ingested patients (demo-only).
-        curl -sS -X PUT "${CENTRAL_API_URL%/}/consents/${code}/${patient_id}" \
-          -H "Content-Type: application/json" \
-          -d '{"consent_active": true}' >/dev/null || true
+        _http_put_consent_true "${code}" "${patient_id}"
         inserted=$((inserted + 1))
       fi
     done <<< "${out}"
