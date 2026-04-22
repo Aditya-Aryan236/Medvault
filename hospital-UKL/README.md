@@ -12,7 +12,7 @@ Simulates the MedVault data platform from the case study:
 - **Config Server Replica Set (CSRS)** — `configsvr1/2/3` (replica set id: `csrs`)
 - **Shard 1 (replica set)** — `shard1a/1b/1c` (replica set id: `sh1rs`)
 - **Shard 2 (replica set)** — `shard2` (replica set id: `sh2rs`)
-- **Query router (mongos)** — `mongos-router` (container name: `hospital-gre-router`) is the **only app entrypoint**
+- **Query router (mongos)** — `mongos-router` (container name: `hospital-UKL-router`) is the **only app entrypoint**
 - **Write concern `w:majority`** — writes are acknowledged after majority of the targeted replica set(s)
 - **Mongo Express UI** — browser-based interface to inspect the database through the router
 
@@ -39,8 +39,9 @@ docker compose -f docker-compose.yml up -d
 
 Startup order (automatic via healthchecks):
 1. Config servers + shard members start and pass their ping healthchecks
-2. `mongos-router` starts after config servers + shards are healthy
-3. `mongo-express` starts after `mongos-router` is healthy
+2. `mongos-router` starts after config servers are healthy
+3. `init-shards-cluster` runs once to bootstrap the cluster (replica sets + `sh.addShard(...)` + shard key)
+4. `mongo-express` starts after `mongos-router` is healthy
 
 Wait ~30 seconds, then check:
 
@@ -55,25 +56,14 @@ Key ports on your laptop:
 
 ---
 
-## One-time: initialize the sharded cluster (replica sets + add shards)
+## Cluster initialization (automatic)
 
-The containers boot the processes, but you still need to initiate the replica sets and register shards on the router once:
+This stack automatically initializes the sharded cluster via the one-shot `init-shards-cluster` service (you’ll see a container named `hospital-UKL-init` start, run, then exit).
 
-```bash
-./init-shards.sh
-```
-
-This will:
-- `rs.initiate()` for `csrs`, `sh1rs`, `sh2rs`
-- `sh.addShard(...)` on `hospital-gre-router`
-
-Then (recommended for the demo), pre-split chunks and shard the demo collection:
-
-```bash
-./init-shard-key.sh
-```
-
-This uses **Approach A** (`numInitialChunks: 4`) to create multiple chunks up-front so inserts will distribute across `sh1rs` and `sh2rs` without waiting for autosplit thresholds.
+What it does:
+- `rs.initiate()` for `csrs`, `sh1rs`, `sh2rs` (idempotent)
+- `sh.addShard(...)` on the router (idempotent)
+- Enables sharding for `medvault.patients` using a **hashed** shard key (`patient_id`) and pre-splits with `numInitialChunks: 4`
 
 ---
 
@@ -97,13 +87,13 @@ mongosh "mongodb://localhost:27017" demo.js
 If your laptop doesn't have `mongosh`, you can run the script using the router container's built-in `mongosh`:
 
 ```bash
-docker exec -i hospital-gre-router mongosh --port 27017 < demo.js
+docker exec -i hospital-UKL-router mongosh --port 27017 < demo.js
 ```
 
 This runs three operations in sequence:
 1. **insertMany** — inserts **100** de-identified patient documents with `w:majority` into `medvault.patients`
 2. **Aggregation** — cohort HbA1c query returning only anonymised statistics
-3. **GDPR Art. 17** — consent withdrawal for PT-000003, then re-runs the same query to show exclusion
+3. **GDPR Art. 17** — consent withdrawal for PT-0003, then re-runs the same query to show exclusion
 
 The script also prints the shard distribution for `patients` at the end.
 
@@ -139,7 +129,7 @@ db.patients.aggregate([
 ])
 
 // Withdraw consent for PT-0003
-db.patients.updateOne({ patient_id: "PT-000003" }, { $set: { consent_active: false } })
+db.patients.updateOne({ patient_id: "PT-0003" }, { $set: { consent_active: false } })
 
 // Sharded cluster status (via mongos)
 db.adminCommand({ listShards: 1 })
@@ -167,7 +157,7 @@ docker compose -f docker-compose.yml down -v
 
 | Symptom | Fix |
 |---|---|
-| `Error dependency mongos-router failed to start` | Ensure `mongos-router` uses `--configdb csrs/...` (must match `init-shards.sh`) |
+| `Error dependency mongos-router failed to start` / router unhealthy | Check `docker logs hospital-UKL-init` — cluster bootstrap must complete (CSRS must be initiated) before the router becomes healthy |
 | Port `27019 already in use` | Something else is using `27019` on your laptop; stop it or change the host port mapping for `configsvr1` |
 | Demo connects but `sh.status()` errors | Make sure you're connected to `mongodb://localhost:27017` (mongos), not a shard member |
 | `mongosh: command not found` | Install from https://www.mongodb.com/try/download/shell |

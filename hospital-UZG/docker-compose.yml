@@ -9,7 +9,7 @@ x-mongo-base: &mongo-base
   restart: unless-stopped
   env_file:
     - ./.env
-    - ../.shared.env
+    - ./../.shared.env
   deploy:
     resources:
       limits:
@@ -87,6 +87,19 @@ services:
       shard2:
         condition: service_healthy
 
+  init-shards-cluster:
+    <<: *mongo-base
+    container_name: hospital-UZG-init-shards
+    networks:
+      - net-internal
+    volumes:
+      - ../scripts/init-simple-hospital-shards.sh:/init-shards.sh:ro
+    entrypoint: ["/bin/bash", "/init-shards.sh"]
+    restart: "no"
+    depends_on:
+      mongos-router:
+        condition: service_healthy
+
   mongos-router:
     <<: *mongo-base
     container_name: hospital-UZG-router
@@ -129,7 +142,7 @@ services:
   #     - net-internal
 
   agent-uzg:
-    build: ../../agents/agent_api
+    build: ../agents/agent_api
     container_name: agent-uzg
     environment:
       - HOSPITAL_CODE=UZG
@@ -140,7 +153,7 @@ services:
     ports:
       - "9004:9000"
     env_file:
-      - ../.shared.env
+      - ./../.shared.env
 
 volumes:
   configsvr1-data:

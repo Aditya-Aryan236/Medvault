@@ -9,7 +9,7 @@ x-mongo-base: &mongo-base
   restart: unless-stopped
   env_file:
     - ./.env
-    - ../.shared.env
+    - ./../.shared.env
   deploy:
     resources:
       limits:
@@ -21,7 +21,7 @@ x-mongo-base: &mongo-base
 x-mongo-tpl: &mongo-tpl
   <<: *mongo-base
   networks:
-    - net-AMC-internal
+    - net-internal
 
 x-configsvr-tpl: &configsvr-tpl
   <<: *mongo-tpl
@@ -53,23 +53,23 @@ services:
     <<: *configsvr-tpl
     container_name: hospital-AMC-configsvr1
     volumes:
-      - configsvr1-AMC-data:/data/db
-      - configsvr1-AMC-config:/data/configdb
+      - configsvr1-data:/data/db
+      - configsvr1-config:/data/configdb
 
   shard1:
     <<: *shard-tpl
     container_name: hospital-AMC-shard1
     volumes:
-      - shard1-AMC-data:/data/db
-      - shard1-AMC-config:/data/configdb
+      - shard1-data:/data/db
+      - shard1-config:/data/configdb
 
   shard2:
     <<: *shard-tpl
     container_name: hospital-AMC-shard2
     command: ["mongod", "--shardsvr", "--replSet", "sh2rs", "--bind_ip_all"] # override the command --replSet from the template
     volumes:
-      - shard2-AMC-data:/data/db
-      - shard2-AMC-config:/data/configdb
+      - shard2-data:/data/db
+      - shard2-config:/data/configdb
 
   # Mongos only listens for clients once the config replica set has a primary; run this
   # before mongos so healthchecks and mongo-express can start without a manual rs.initiate.
@@ -77,7 +77,7 @@ services:
     <<: *mongo-base
     container_name: hospital-AMC-init-rs
     networks:
-      - net-AMC-internal
+      - net-internal
     volumes:
       - ../scripts/init-replica-sets-shard-demo.sh:/init-replica-sets.sh:ro
     entrypoint: ["/bin/bash", "/init-replica-sets.sh"]
@@ -97,7 +97,7 @@ services:
     ports:
       - "${MONGOS_HOST_PORT:-27117}:27017"
     networks:
-      - net-AMC-internal
+      - net-internal
     healthcheck:
       test: ["CMD", "mongosh", "--port", "27017", "--eval", "db.adminCommand('ping').ok", "--quiet"]
       interval: 10s
@@ -129,7 +129,7 @@ services:
   #     mongos-router:
   #       condition: service_healthy
   #   networks:
-  #     - net-AMC-internal
+  #     - net-internal
   #   env_file:
   #     - ../.shared.env
 
@@ -145,16 +145,16 @@ services:
     ports:
       - "9001:9000"
     env_file:
-      - ../.shared.env
+      - ./../.shared.env
 
 volumes:
-  configsvr1-AMC-data:
-  configsvr1-AMC-config:
-  shard1-AMC-data:
-  shard1-AMC-config:
-  shard2-AMC-data:
-  shard2-AMC-config:
+  configsvr1-data:
+  configsvr1-config:
+  shard1-data:
+  shard1-config:
+  shard2-data:
+  shard2-config:
 
 networks:
-  net-AMC-internal:
+  net-internal:
     driver: bridge

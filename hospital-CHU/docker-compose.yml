@@ -9,7 +9,7 @@ x-mongo-base: &mongo-base
   restart: unless-stopped
   env_file:
     - ./.env
-    - ../.shared.env
+    - ./../.shared.env
   deploy:
     resources:
       limits:
@@ -87,12 +87,25 @@ services:
       shard2:
         condition: service_healthy
 
+  init-shards-cluster:
+    <<: *mongo-base
+    container_name: hospital-CHU-init-shards
+    networks:
+      - net-internal
+    volumes:
+      - ../scripts/init-simple-hospital-shards.sh:/init-shards.sh:ro
+    entrypoint: ["/bin/bash", "/init-shards.sh"]
+    restart: "no"
+    depends_on:
+      mongos-router:
+        condition: service_healthy
+
   mongos-router:
     <<: *mongo-base
     container_name: hospital-CHU-router
     command: ["mongos", "--configdb", "csrs/configsvr1:27019", "--bind_ip_all"]
     ports:
-      - "${MONGOS_HOST_PORT:-27217}:27017"
+      - "${MONGOS_HOST_PORT:-27227}:27017"
     networks:
       - net-internal
     healthcheck:
@@ -132,14 +145,13 @@ services:
     container_name: agent-chu
     environment:
       - HOSPITAL_CODE=CHU
-      - CENTRAL_API_URL=${CENTRAL_API_URL}
     networks:
       - net-internal
       - net-federated-bridge
     ports:
       - "9002:9000"
     env_file:
-      - ../.shared.env
+      - ./../.shared.env
 
 volumes:
   configsvr1-data:
