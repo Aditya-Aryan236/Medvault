@@ -67,6 +67,25 @@ print("writeConcern w:majority – confirmed on primary + secondary");
 // Verify replication (run on secondary to confirm data arrived)
 // rs.secondaryOk(); db.patients.countDocuments();
 
+// ═══════════════════════════════════════════════════════════════════════════
+// OPERATION 1.5 — createIndex: optimise queries before running aggregation
+// Shows: compound index on consent + ICD-10 (matches $match in Op 2)
+// ═══════════════════════════════════════════════════════════════════════════
+
+print("\n── OP 1.5: Creating indexes for consent + ICD-10 queries ──");
+
+db.patients.createIndex(
+  { consent_active: 1, icd10_primary: 1 },
+  { name: "idx_consent_icd10" }
+);
+
+db.patients.createIndex(
+  { patient_id: 1 },
+  { unique: true, name: "idx_patient_id_unique" }
+);
+
+print("Indexes created:");
+printjson(db.patients.getIndexes().map(i => i.name));
 
 // ═══════════════════════════════════════════════════════════════════════════
 // OPERATION 2 — Aggregation pipeline: diabetes cohort HbA1c study
