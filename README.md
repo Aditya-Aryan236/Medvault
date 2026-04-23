@@ -33,6 +33,14 @@ Verify: `mongosh --version`
 
 ## Start the stack
 
+Before starting up the Docker Compose, we should create an external network that represents the federal network connection.
+
+```bash
+docker network create medvault-federated
+```
+
+**The setup below should be executed under the `hospital-node` folder.**
+
 ```bash
 docker compose -f docker-compose.yml up -d
 ```

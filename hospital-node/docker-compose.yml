@@ -165,7 +165,8 @@ services:
       - net-internal
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8081"]
+      # When BasicAuth is enabled, "/" returns 401; treat any HTTP response as healthy.
+      test: ['CMD-SHELL', 'wget -S -O- -T 2 http://127.0.0.1:8081/ 2>&1 | grep -q "  HTTP/"']
       interval: 15s
       timeout: 5s
       retries: 4
